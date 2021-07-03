@@ -6,32 +6,31 @@ import logging
 from logging.handlers import RotatingFileHandler
 
 import torch
-from PIL import Image
+from PIL import Image, ImageOps
 from torchvision import transforms
 
 from flask import Flask, request, render_template, flash, url_for, redirect, send_from_directory
 from werkzeug.utils import secure_filename
 
-
 # global declaration
-IMG_FOLDER = join(dirname(realpath(__file__)), 'uploads/')
+IMG_FOLDER = join(dirname(realpath(__file__)), 'uploads')
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
 
 app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = IMG_FOLDER
+
 # app.add_url_rule(
 #     "/uploads/<name>", endpoint="download_file", build_only=True
 # )
 
 # load model and turn it in evaluation mode
-MODEL_PATH = './app/models/digits_model.pth'  # TODO: make path dynamic
+MODEL_PATH = join(dirname(realpath(__file__)), 'models/digits_model.pth')  # TODO: make path dynamic
 try:
     model = torch.load(MODEL_PATH)
     model.eval()
 except FileNotFoundError as model_not_exist:
     raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT),
                             MODEL_PATH) from model_not_exist
-
 
 
 def get_prediction(image_path: str) -> tuple:
@@ -44,11 +43,26 @@ def get_prediction(image_path: str) -> tuple:
     dataset. It will be resized and cropped tho.
     """
 
+    def to_negative(img_to_neg):
+        img_to_neg = img_to_neg.convert('L')
+        img_to_neg = ImageOps.invert(img_to_neg)
+        img_to_neg = img_to_neg.convert('1')
+        return img_to_neg
+
+    class Negative(object):
+        def __init__(self):
+            pass
+
+        def __call__(self, img):
+            return to_negative(img)
+
     preprocess = transforms.Compose([
-        transforms.Resize(29),      # Resize and crop incoming image to get
+        transforms.Resize(32),  # Resize and crop incoming image to get
         transforms.CenterCrop(28),  # 28x28, which our model can eat
-        transforms.Grayscale(),     # Turn in to greyscale
-        transforms.ToTensor()       # No need to explain
+        transforms.Grayscale(),  # Turn in to greyscale
+        Negative(),  # Since model was trained on MNIST dataset, image should be inverse grayscaled
+        transforms.ToTensor(),  # No need to explain
+        transforms.Normalize(0.5, 0.5)
     ])
 
     try:
@@ -60,17 +74,23 @@ def get_prediction(image_path: str) -> tuple:
     # turn tensor in 2d array with [1, 784] shape
     img_processed = preprocess(img).flatten().unsqueeze(dim=0)
 
-    predictions = model(img_processed)
-    return predictions.argmax().item(), predictions
+    with torch.no_grad():
+        logps = model(img_processed)
+
+    ps = torch.exp(logps)
+    probab = list(ps.numpy()[0])
+    return probab.index(max(probab)), probab
 
 
 def allowed_file(filename):
     return '.' in filename and \
            filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
+
 @app.route('/')
 def main_page():
     return render_template('index.html')
+
 
 # @app.route('/uploads/<name>')
 # def download_file(name):
@@ -94,14 +114,18 @@ def upload_file():
             filename = secure_filename(file.filename)
             file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
             file.save(file_path)
+            pred, prob = get_prediction(file_path)
+            print(pred)
+            print(prob)
             print(file_path)
-            return render_template("load.html", uploaded_img = file_path)
+            return render_template("load.html", uploaded_img=file_path, digit_pred=pred)
     return render_template('load.html')
 
 
 @app.route('/canvas', methods=['GET', 'POST'])
 def canvas():
     return render_template('canvas.html')
+
 
 # @app.route('/')
 # def predict():
@@ -111,4 +135,3 @@ def canvas():
 
 if __name__ == '__main__':
     app.run(debug=True)
-
