@@ -8,13 +8,15 @@
 </head>
 
 <body>
+<div class="container">
     <canvas class="whiteboard"></canvas>
     <div class="buttons">
-        <button id="color-btn" class="btns">Change Color</button>
+        <button id="send-btn" class="btns">Recognize</button>
         <button id="clear-btn" class="btns">Clear</button>
     </div>
+</div>
 
-    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script>
-    <script src="{{ url_for('static', filename='main.js') }}"></script>
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script>
+<script src="{{ url_for('static', filename='main.js') }}"></script>
 </body>
 </html>

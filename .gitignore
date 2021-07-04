@@ -129,5 +129,5 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
-app/uploads/*
-!app/uploads/.gitkeep
+app/static/uploads/*
+!app/static/uploads/.gitkeep

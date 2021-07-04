@@ -1,7 +1,7 @@
 $(function () {
     var canvas = $('.whiteboard')[0];
     var context = canvas.getContext('2d');
-    var colorBtn = $('#color-btn');
+    var sendBtn = $('#send-btn');
     var clearBtn = $('#clear-btn');
     var current = {
         color: 'black'
@@ -13,7 +13,7 @@ $(function () {
         context.moveTo(x0, y0);
         context.lineTo(x1, y1);
         context.strokeStyle = color;
-        context.lineWidth = 2;
+        context.lineWidth = 4;
         context.stroke();
         context.closePath();
     }
@@ -37,27 +37,38 @@ $(function () {
         current.y = e.clientY;
     }
 
-    function changeColor() {
-        current.color = '#' + Math.floor(Math.random() * 16777215).toString(16);  // change line color
-        colorBtn.css('border', '5px solid ' + current.color);  // change the button border color
-    };
+    function sendEvent() {
+        var dataURL = canvas.toDataURL();
+        console.log(dataURL);
+        $.ajax({
+          type: "POST",
+          url: "hook",
+          data:{
+            imageBase64: dataURL
+          }
+        }).done(function() {
+          console.log('sent');
+        });
+        context.clearRect(0, 0, canvas.width, canvas.height);
+    }
 
     function clearBoard() {
         context.clearRect(0, 0, canvas.width, canvas.height);
-    };
+    }
     
     function onResize() {
         canvas.width = window.innerWidth;
         canvas.height = window.innerHeight;
-    };
+    }
 
     canvas.addEventListener('mousedown', onMouseDown);
     canvas.addEventListener('mouseup', onMouseUp);
     canvas.addEventListener('mouseout', onMouseUp);
     canvas.addEventListener('mousemove', onMouseMove);
     
-    colorBtn.on('click', changeColor);
-    clearBtn.on('click', clearBoard);   
+    sendBtn.on('click', sendEvent);
+    clearBtn.on('click', clearBoard);
+
 
     window.addEventListener('resize', onResize);
     onResize();

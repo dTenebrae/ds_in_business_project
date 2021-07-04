@@ -1,6 +1,8 @@
 import os
+import io
 from os.path import join, dirname, realpath
 import errno
+import base64
 from time import strftime
 import logging
 from logging.handlers import RotatingFileHandler
@@ -9,38 +11,42 @@ import torch
 from PIL import Image, ImageOps
 from torchvision import transforms
 
-from flask import Flask, request, render_template, flash, url_for, redirect, send_from_directory
+from flask import Flask, request, render_template, url_for, redirect
 from werkzeug.utils import secure_filename
 
-# global declaration
-IMG_FOLDER = join(dirname(realpath(__file__)), 'uploads')
-ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
-
 app = Flask(__name__)
+IMG_FOLDER = join(dirname(realpath(__file__)), 'static/uploads')
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
 app.config['UPLOAD_FOLDER'] = IMG_FOLDER
 
-# app.add_url_rule(
-#     "/uploads/<name>", endpoint="download_file", build_only=True
-# )
+# logger initialization
+handler = RotatingFileHandler(filename='app.log', maxBytes=100000, backupCount=10)
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+logger.addHandler(handler)
 
 # load model and turn it in evaluation mode
-MODEL_PATH = join(dirname(realpath(__file__)), 'models/digits_model.pth')  # TODO: make path dynamic
+MODEL_PATH = join(dirname(realpath(__file__)), 'models/digits_model.pth')
 try:
     model = torch.load(MODEL_PATH)
     model.eval()
 except FileNotFoundError as model_not_exist:
+    dt_log = strftime("[%Y-%b-%d %H:%M:%S]")
+    logger.warning(f'{dt_log} exception{model_not_exist} in path {MODEL_PATH}')
     raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT),
                             MODEL_PATH) from model_not_exist
 
 
-def get_prediction(image_path: str) -> tuple:
+def get_prediction(image_var) -> tuple:
     r""" Returns predictions about loaded image (what digit it is) in form
     of a tuple of 2 elements. First element is a prediction itself,
     second - tensor of probabilities.
     Args:
-        image_path: path to image, which should be recognized.
-    Model expects 28 by 28 pixel image, since it was trained on MNIST
-    dataset. It will be resized and cropped tho.
+        image_var: path to image to be recognized.
+    Model expects 28 by 28 pixel image black digit on white background
+    since it was trained on MNIST dataset. It will be resized and cropped tho.
+    If not a str was passed as argument - it expected to be PIL Image object,
+    since it's data recieved from canvas TODO canvas feature not completed yet
     """
 
     def to_negative(img_to_neg):
@@ -53,8 +59,8 @@ def get_prediction(image_path: str) -> tuple:
         def __init__(self):
             pass
 
-        def __call__(self, img):
-            return to_negative(img)
+        def __call__(self, img_to_neg):
+            return to_negative(img_to_neg)
 
     preprocess = transforms.Compose([
         transforms.Resize(32),  # Resize and crop incoming image to get
@@ -65,11 +71,14 @@ def get_prediction(image_path: str) -> tuple:
         transforms.Normalize(0.5, 0.5)
     ])
 
-    try:
-        img = Image.open(image_path)
-    except FileNotFoundError as image_not_exist:
-        raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT),
-                                MODEL_PATH) from image_not_exist
+    if isinstance(image_var, str):
+        try:
+            img = Image.open(image_var)
+        except FileNotFoundError as image_not_exist:
+            raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT),
+                                    MODEL_PATH) from image_not_exist
+    else:
+        img = image_var
 
     # turn tensor in 2d array with [1, 784] shape
     img_processed = preprocess(img).flatten().unsqueeze(dim=0)
@@ -87,38 +96,35 @@ def allowed_file(filename):
            filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 
+#  check, if file extension is allowed
 @app.route('/')
 def main_page():
     return render_template('index.html')
 
 
-# @app.route('/uploads/<name>')
-# def download_file(name):
-#     return send_from_directory(app.config["UPLOAD_FOLDER"], name)
-
-# @app.route('/')
 @app.route('/load', methods=['GET', 'POST'])
 def upload_file():
     if request.method == 'POST':
+        dt = strftime("[%Y-%b-%d %H:%M:%S]")
         # check if the post request has the file part
         if 'file' not in request.files:
-            flash('No file part')
             return redirect(request.url)
         file = request.files['file']
         # If the user does not select a file, the browser submits an
         # empty file without a filename.
         if file.filename == '':
-            flash('No selected file')
+            logger.warning(f'{dt} empty path')
             return redirect(request.url)
         if file and allowed_file(file.filename):
             filename = secure_filename(file.filename)
             file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-            file.save(file_path)
+            file.save(file_path)  # TODO try/except this
             pred, prob = get_prediction(file_path)
-            print(pred)
-            print(prob)
-            print(file_path)
-            return render_template("load.html", uploaded_img=file_path, digit_pred=pred)
+            static_path = url_for('static', filename=f'uploads/{filename}')
+
+            logger.info(f'{dt} Data: filepath={static_path}, prediction={pred}, probabilities={prob}')
+
+            return render_template("load.html", uploaded_img=static_path, digit_pred=pred, prob_dist=prob)
     return render_template('load.html')
 
 
@@ -127,10 +133,18 @@ def canvas():
     return render_template('canvas.html')
 
 
-# @app.route('/')
-# def predict():
-#     pred, _ = get_prediction('./app/img/digit.png')
-#     return f'{pred}'
+#  function, what hook data from canvas, decode and send it to model.
+#  atm sending just black(or white, not sure yet) rectangle, but incoming data looks proper
+@app.route('/hook', methods=['POST'])
+def get_image():
+    image_b64 = request.values['imageBase64']
+    image_data = image_b64.split(';')[1].split(',')[1]
+    body = base64.decodebytes(image_data.encode('utf-8'))
+    image_pil = Image.open(io.BytesIO(body))
+    pred, prob = get_prediction(image_pil)
+    print(pred)
+    print(prob)
+    return ''
 
 
 if __name__ == '__main__':
