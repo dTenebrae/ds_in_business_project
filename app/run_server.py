@@ -46,9 +46,12 @@ def get_prediction(image_var) -> tuple:
     Model expects 28 by 28 pixel image black digit on white background
     since it was trained on MNIST dataset. It will be resized and cropped tho.
     If not a str was passed as argument - it expected to be PIL Image object,
-    since it's data recieved from canvas TODO canvas feature not completed yet
+    since it's data recieved from canvas 
+    TODO canvas feature not completed yet
     """
 
+    # we have to describe Negative class to use it inside transforms.Compose
+    # pipeline
     def to_negative(img_to_neg):
         img_to_neg = img_to_neg.convert('L')
         img_to_neg = ImageOps.invert(img_to_neg)
@@ -69,8 +72,9 @@ def get_prediction(image_var) -> tuple:
         Negative(),  # Since model was trained on MNIST dataset, image should be inverse grayscaled
         transforms.ToTensor(),  # No need to explain
         transforms.Normalize(0.5, 0.5)
-    ])
+    ])    
 
+    # Check, if we got a path to image or image itself
     if isinstance(image_var, str):
         try:
             img = Image.open(image_var)
