@@ -45,6 +45,7 @@ $ git clone https://github.com/dTenebrae/ds_in_business_project.git
 $ cd ds_in_business_project
 $ docker build -t mnist_rec .
 ```
+Размер итогового образа - около 5Gb.
 
 ### Запускаем контейнер
 ```

@@ -14,7 +14,6 @@ RUN rm /home/project/README.md
 RUN rm -rf /home/project/env
 
 EXPOSE 5000
-#VOLUME /app/models
 
 COPY ./docker-entrypoint.sh /
 RUN chmod +x /docker-entrypoint.sh
